@@ -20,13 +20,17 @@ class fc_block(nn.Module):
         x = self.softmax(x)
         return x
 class FineTuningModel(nn.Module):
-    def __init__(self, backbone, num_classes=1000):
+    def __init__(self, backbone, num_classes=1000,logger=None,config=None):
         super(FineTuningModel, self).__init__()
         self.backbone = backbone
         self.fc = fc_block(backbone.output_dim, num_classes)
         self.last_loss = None
         self.last_acc = None
-
+        self.logger = logger
+        self.config = config
+        self.n_way = config.n_way
+        self.n_query = config.n_query
+        self.n_support = config.n_support
     def forward(self, x):
         features = self.backbone(x)
         out = self.fc(features)
@@ -37,24 +41,53 @@ class FineTuningModel(nn.Module):
             self.cuda()
             self.train()
             
-            n_way = support_images.shape[0]
-            k_shot = support_images.shape[1]
-            q_query = query_images.shape[1]
+            # 打印输入数据的形状
+            self.logger.log_workflow(f"""
+            Input shapes:
+            - Support images: {support_images.shape}
+            - Query images: {query_images.shape}
+            """)
             
-            support = support_images.contiguous()
-            support = support.view(n_way*k_shot, *support.size()[2:]).cuda()
-            query = query_images.contiguous()
-            query = query.view(n_way*q_query, *query.size()[2:]).cuda()
+            # 分离原始support和生成的support
+            n_support = self.config.n_support
+            total_shot = support_images.shape[1]  # 总共的shot数（包括原始和生成的）
             
+            self.logger.log_workflow(f"""
+            Splitting support and Lora images:
+            - Original support shots: {n_support}
+            - Lora generated shots: {total_shot - n_support}
+            Total shots per class: {total_shot}
+            """)
+            
+            # 重塑数据
+            support = support_images.reshape(-1, 3, 224, 224).cuda()  # 直接展平所有样本
+            query = query_images.reshape(-1, 3, 224, 224).cuda()
+            
+            self.logger.log_workflow(f"""
+            Reshaped dimensions:
+            - Support: {support.shape}
+            - Query: {query.shape}
+            """)
+            
+            # 准备标签
+            y_support = torch.from_numpy(np.repeat(range(self.n_way), total_shot)).cuda()
+            y_query = torch.from_numpy(np.repeat(range(self.n_way), self.n_query)).cuda()
+            
+            self.logger.log_workflow(f"""
+            Labels:
+            - Support labels shape: {y_support.shape}
+            - Query labels shape: {y_query.shape}
+            - Support labels: {y_support}
+            - Query labels: {y_query}
+            """)
+            
+            # 设置优化器
             optimizer = optim.Adam([
                 {'params': self.backbone.parameters(), 'lr': 3e-5},
                 {'params': self.fc.parameters(), 'lr': 3e-4}
             ])
             
             loss_fn = nn.CrossEntropyLoss()
-            y_support = torch.from_numpy(np.repeat(range(n_way), k_shot)).cuda()
-            y_query = torch.from_numpy(np.repeat(range(n_way), q_query)).cuda()
-            
             support_size = support.size(0)
             
             for epoch in range(num_epochs):
@@ -64,14 +97,13 @@ class FineTuningModel(nn.Module):
                 for i in range(0, support_size, batch_size):
                     optimizer.zero_grad()
                     selected_id = torch.from_numpy(rand_id[i: min(i + batch_size, support_size)]).cuda()
+                    self.logger.log_workflow(f"selected_id: {selected_id}")
                     z_batch = support[selected_id]
                     y_batch = y_support[selected_id]
-                    
                     scores = self(z_batch)
                     loss = loss_fn(scores, y_batch)
                     loss.backward()
                     optimizer.step()
-                    
                     epoch_loss += loss.item()
                 
                 # 计算当前epoch的平均loss
@@ -84,14 +116,21 @@ class FineTuningModel(nn.Module):
                     acc = (scores.argmax(dim=1) == y_query).float().mean().item()
                     self.last_acc = acc
                 
+                if epoch % 10 == 0:
+                    self.logger.log_workflow(f"""
+                    Epoch {epoch+1}/{num_epochs}:
+                    - Loss: {avg_loss:.4f}
+                    - Accuracy: {acc*100:.2f}%
+                    """)
+                
                 if callback:
                     callback(epoch + 1, num_epochs, avg_loss, acc)
-                
+            
             return self.last_acc
             
         except Exception as e:
-            print(f"Error in fine_tune: {str(e)}")
-            print(f"Error traceback: {traceback.format_exc()}")
+            self.logger.log_workflow_error(f"Error in fine_tune: {str(e)}")
+            self.logger.log_workflow_error(f"Error traceback: {traceback.format_exc()}")
             raise
 # 加载预训练模型权重到指定模型
 def load_pretrained_weights(model, pretrained_path):
@@ -111,9 +150,9 @@ def load_pretrained_weights(model, pretrained_path):
             continue
     model.load_state_dict(new_state_dict, strict=False)
 # 获取测试模型实例
-def get_test_model(model_name, num_classes=1000, freeze_backbone=False):
+def get_test_model(model_name, num_classes=1000, freeze_backbone=False,logger=None,config=None):
     backbone = get_backbone(model_name)
-    model = FineTuningModel(backbone, num_classes)
+    model = FineTuningModel(backbone, num_classes,logger,config)
 
     if freeze_backbone:
         for param in model.backbone.parameters():

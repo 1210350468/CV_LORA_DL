@@ -8,13 +8,17 @@ from collections import deque
 class LogManager:
     def __init__(self):
         """初始化日志管理器"""
+        # 获取test目录的路径
+        test_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_dir = os.path.join(test_dir, 'test', 'logs')
+        
         # 确保日志目录存在
-        os.makedirs('logs', exist_ok=True)
+        os.makedirs(log_dir, exist_ok=True)
         
         # 设置日志文件路径
-        self.workflow_log = os.path.join('logs', 'workflow.log')
-        self.task_log = os.path.join('logs', 'task_output.log')
-        self.results_file = os.path.join('logs', 'results.json')
+        self.workflow_log = os.path.join(log_dir, 'workflow.log')
+        self.task_log = os.path.join(log_dir, 'task_output.log')
+        self.results_file = os.path.join(log_dir, 'results.json')
         
         # 使用 deque 来存储最新的2000行日志
         self.workflow_logs = deque(maxlen=2000)

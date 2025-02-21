@@ -113,55 +113,39 @@ class TestManager:
             self.logger.log_workflow(f"Using script: {script_path}")
             os.chdir(lora_scripts_dir)
             
-            process = subprocess.Popen(
-                ['bash', script_path],
-                stdout=PIPE,
-                stderr=STDOUT,
-                universal_newlines=True,
-                bufsize=1,
-                cwd=lora_scripts_dir
-            )
+            # 使用execute_command执行训练脚本
+            cmd = f"bash {script_path}"
+            result = self.execute_command(cmd, working_dir=lora_scripts_dir)
             
-            # 实时读取输出
-            for line in process.stdout:
-                line = line.strip()
-                if line:
-                    self.logger.log_workflow(line)
-            
-            process.wait()
-            if process.returncode != 0:
-                raise Exception(f"Lora training failed with return code {process.returncode}")
+            if result != 0:
+                error_msg = f"Lora training failed with return code {result}"
+                self.logger.log_workflow_error(error_msg)
+                raise Exception(error_msg)
             
             self.logger.log_workflow("Lora training completed successfully")
             
         except Exception as e:
-            self.logger.log_workflow_error(f"Lora training failed: {str(e)}")
+            error_msg = f"Lora training failed: {str(e)}"
+            self.logger.log_workflow_error(error_msg)
             raise
         finally:
             os.chdir(original_dir)
 
     def execute_command(self, cmd, working_dir=None):
-        """执行命令并捕获输出"""
+        """执行命令并显示输出"""
         original_dir = os.getcwd()
         try:
             if working_dir:
                 os.chdir(working_dir)
             
+            # 直接执行命令，不捕获输出
             process = subprocess.Popen(
                 cmd,
-                stdout=PIPE,
-                stderr=STDOUT,
                 shell=True,
-                universal_newlines=True,
-                bufsize=1
+                # 不设置stdout和stderr，让输出直接显示在终端
             )
             
-            # 实时读取输出
-            for line in process.stdout:
-                line = line.strip()
-                if line:
-                    self.logger.log_workflow(line)
-            
+            # 等待命令执行完成
             process.wait()
             return process.returncode
             
@@ -172,7 +156,7 @@ class TestManager:
     def run_test(self, n_way=None, n_support=None, n_query=None, task_num=None, dataset=None):
         try:
             # 开始前清理所有目录
-            self.clean_directories()
+            # self.clean_directories()
             
             # 更新配置
             if any(x is not None for x in [n_way, n_support, n_query, task_num, dataset]):
@@ -195,25 +179,13 @@ class TestManager:
             # 添加数据加载日志
             self.logger.log_workflow(f"Loading data from {self.config.dataset} dataset...")
             
-            max_retries = 3
-            retry_count = 0
-            
-            while retry_count < max_retries:
-                try:
-                    test_loader = get_meta_dataloader(
-                        num_classes=self.config.n_way,
-                        num_support=self.config.n_support,
-                        num_query=self.config.n_query,
-                        task_num=self.config.task_num, 
-                        json_file=json_path
-                    )
-                    break
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count == max_retries:
-                        raise Exception(f"Failed to create dataloader after {max_retries} attempts: {str(e)}")
-                    time.sleep(1)  # 等待1秒后重试
-            
+            test_loader = get_meta_dataloader(
+                num_classes=self.config.n_way,
+                num_support=self.config.n_support,
+                num_query=self.config.n_query,
+                task_num=self.config.task_num, 
+                json_file=json_path
+            )
             # 创建必要的目录
             output_support_dir = self.config.output_support_dir
             output_Lora_dir = self.config.output_Lora_dir
@@ -235,7 +207,13 @@ class TestManager:
                     
                     # 选择模型
                     self.logger.log_workflow("Initializing model...")
-                    model = get_test_model(model_name='resnet18', num_classes=self.config.n_way, freeze_backbone=False)
+                    model = get_test_model(
+                        model_name='resnet18', 
+                        num_classes=self.config.n_way, 
+                        freeze_backbone=False,
+                        logger=self.logger,
+                        config=self.config  # 传入配置
+                    )
                     model = model.cuda()
                     self.logger.log_workflow("Model moved to GPU")
                     
@@ -261,9 +239,9 @@ class TestManager:
                     self.logger.log_workflow("Image annotation completed")
                     
                     # 启动Lora训练
-                    self.logger.log_workflow("Starting Lora training...")
-                    self.lora_train()
-                    self.logger.log_workflow("Lora training completed")
+                    # self.logger.log_workflow("Starting Lora training...")
+                    # self.lora_train()
+                    # self.logger.log_workflow("Lora training completed")
                     
                     # 生成新图片
                     self.logger.log_workflow("Generating new images with Lora...")
@@ -310,9 +288,6 @@ class TestManager:
                     # 记录任务结果
                     self.logger.log_task_summary(i+1, acc)
                     acc_list.append(acc)
-                    delete_folders(output_Lora_dir)
-                    delete_folders(output_support_dir)
-                    
                     # 修改结果保存的调用
                     self.logger.save_task_result(
                         task_id=i+1,
