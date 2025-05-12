@@ -14,7 +14,7 @@ from dataloader.Pretrain_Dataloader import get_pretrain_dataloader
 from models.Pretrain_VIT import get_vit_model
 from torch.cuda.amp import GradScaler, autocast
 # 训练函数
-def train_model(model, train_loader, val_loader, optimizer, criterion, num_epochs=10, save_path='./output/pretrain/VIT', accumulation_steps=4,scheduler=None):
+def train_model(model, train_loader, val_loader, optimizer, criterion, num_epochs=10, save_path='../output/pretrain/VIT', accumulation_steps=4,scheduler=None):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
@@ -73,21 +73,28 @@ def train_model(model, train_loader, val_loader, optimizer, criterion, num_epoch
 
 if __name__ == "__main__":
     # 选择ViT模型并加载预训练权重
-    # model = get_vit_model(num_classes=100, pretrained=True)  # 使用预训练权重
-    model = models.vit_b_16(pretrained=True)
-    num_classes = 100  # 假设有 100 个类别
-    model.heads.head = nn.Linear(model.heads.head.in_features, num_classes)
+    model = get_vit_model(num_classes=100)  # 使用预训练权重
     model = model.cuda()
-
+    
+    # 加载预训练权重，但排除分类头
+    pretrained_dict = torch.load('../output/pretrain/VIT_base/vit_base_patch16_224_in21k.pth')
+    model_dict = model.state_dict()
+    
+    # 过滤掉不匹配的键
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() 
+                      if k in model_dict and 'head' not in k}
+    
+    # 更新当前模型的权重
+    model_dict.update(pretrained_dict)
+    model.load_state_dict(model_dict)
+    
     # 设置优化器和损失函数
-    optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=0.05)  # 使用AdamW和较高的Weight Decay
-    # scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)  # Cosine Annealing学习率调度
+    optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=0.05)
     criterion = nn.CrossEntropyLoss()
-
+    
     # 准备数据
-    train_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImage_train.json')
-    val_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImage_val.json')
-
+    train_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImagenet_train.json')
+    val_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImagenet_val.json')
+    
     # 启动训练
-    # train_model(model, train_loader,val_loader,optimizer, scheduler, criterion, num_epochs=100)
-    train_model(model, train_loader,val_loader,optimizer, criterion, num_epochs=100)
+    train_model(model, train_loader, val_loader, optimizer, criterion, num_epochs=100)

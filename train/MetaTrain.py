@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os
 import sys
-
+import torch.nn.functional as F
 # 假设 CustomResNet 和元学习模型定义在另一个文件中
 from models.Pretrain_ResNet import CustomResNet, get_resnet_model
 from models.ProtoNet import MetaLearningModel, get_meta_model

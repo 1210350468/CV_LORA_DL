@@ -1,5 +1,8 @@
 output/*
 test/support_images/*
+test/saved_images/*
+test/saved_task_images/*
+test/task_images/*
 test/logs/*
 train/output/*
 # 忽略所有.pyc文件

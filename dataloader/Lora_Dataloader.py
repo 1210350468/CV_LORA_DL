@@ -110,8 +110,8 @@ def Load_Lora_image(label_set,original_labels_tensor,transform=None):
     # 调整形状
     print("调整形状前的images:",generated_loaded_images.shape)
     print("调整形状前的labels:",generated_loaded_labels.shape)
-    generated_loaded_images = generated_loaded_images.view(-1, 5 , 3, 224, 224)
-    generated_loaded_labels = generated_loaded_labels.view(-1, 5)
+    generated_loaded_images = generated_loaded_images.reshape(-1, 5 , 3, 224, 224)
+    generated_loaded_labels = generated_loaded_labels.reshape(-1, 5)
 
     print("调整形状后的images:",generated_loaded_images.shape)
     print("调整形状后的labels:",generated_loaded_labels.shape)

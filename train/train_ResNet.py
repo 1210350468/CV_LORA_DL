@@ -15,105 +15,107 @@ from dataloader.Pretrain_Dataloader import mixup_data, mixup_criterion
 import torchvision.models as models
 
 # 训练函数
-def train_model(model, train_loader, train_loader_aug, optimizer_Adam, scheduler_Adam, criterion, num_epochs=10, save_path='../output/pretrain/resnet', mixup_alpha=1.0, accumulation_steps=4):
-    # 如果保存路径不存在，创建路径
+def train_model(model, train_loader, train_loader_aug, optimizer_Adam, scheduler_Adam, criterion, num_epochs=10, save_path='../output/pretrain/resnet', mixup_alpha=1.0):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    model = model.cuda()  # 确保模型在 GPU 上
-    scaler = GradScaler()  # 初始化梯度缩放器用于混合精度训练
+    model = model.cuda()
+    best_acc = 0
+    best_state = None
 
     for epoch in range(num_epochs):
         running_loss = 0.0
         model.train()
-        flag = False
-        mixup = False
+        
+        # 前一半epoch使用增强数据，后一半使用原始数据
+        data_loader = train_loader_aug if epoch < num_epochs // 2 else train_loader
+        print(f"Epoch {epoch+1}: Using {'augmented' if epoch < num_epochs // 2 else 'original'} data")
 
-        # 选择数据加载器和优化器
-        if flag:
-            if epoch + 1 <= int(num_epochs / 2):
-                data_loader = train_loader_aug
-                optimizer = optimizer_Adam
-                scheduler = scheduler_Adam
-                print(f"Epoch {epoch+1}: 使用 train_loader_aug")
-            else:
-                data_loader = train_loader
-                print(f"Epoch {epoch+1}: 使用 train_loader")
-        else:
-            data_loader = train_loader_aug
-            optimizer = optimizer_Adam
-            print(f"Epoch {epoch+1}: 使用 train_loader")
-            print(f"Epoch {epoch+1}: 使用 optimizer_Adam")
-
-        # 使用 tqdm 显示进度条
+        # 训练阶段
         for i, (inputs, labels) in enumerate(tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}")):
             inputs, labels = inputs.cuda(), labels.cuda()
-
-            # 应用 mixup
+            
+            # 在后期使用mixup
             if epoch + 1 > int(num_epochs * 3 / 4):
-                mixup = True
-            else:
-                mixup = False
-
-            if mixup:
                 inputs, targets_a, targets_b, lam = mixup_data(inputs, labels, mixup_alpha)
+                
+            optimizer_Adam.zero_grad()
+            outputs = model(inputs)
+            
+            # 计算损失
+            if epoch + 1 > int(num_epochs * 3 / 4):
+                loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
+            else:
+                loss = criterion(outputs, labels)
+            
+            loss.backward()
+            optimizer_Adam.step()
+            running_loss += loss.item()
 
-            optimizer.zero_grad()
-
-            # 自动混合精度
-            with autocast():
-                outputs = model(inputs)
-                if mixup:
-                    loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
-                else:
-                    loss = criterion(outputs, labels)
-
-            # 梯度累积
-            loss = loss / accumulation_steps
-            scaler.scale(loss).backward()
-
-            if (i + 1) % accumulation_steps == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-
-            running_loss += loss.item()*accumulation_steps
-
-        # scheduler.step()
-
-        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(train_loader)}")
-
-        # 每 50 个 epoch 保存一次模型
-        if (epoch + 1) % 50 == 0:
-            torch.save(model.state_dict(), f'{save_path}model_{epoch+1}.pth')
-            print(f"Model saved at {save_path}model_{epoch+1}.pth")
-
-        # 每 10 个 epoch 进行一次验证
+        # 更新学习率
+        scheduler_Adam.step()
+        
+        # 计算当前epoch的平均损失
+        avg_loss = running_loss / len(data_loader)
+        print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
+        
+        # 每10个epoch验证一次
         if (epoch + 1) % 10 == 0:
             model.eval()
+            val_loss = 0.0
+            val_acc = []
+            
             print("Testing...")
             with torch.no_grad():
-                acc = []
                 for inputs, labels in val_loader:
                     inputs, labels = inputs.cuda(), labels.cuda()
                     outputs = model(inputs)
                     loss = criterion(outputs, labels)
-                    running_loss += loss
-                    # 获取验证集上的准确率
-                    acc.append((outputs.argmax(dim=1) == labels).float().mean().item())
-
-                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(train_loader)}, Acc: {sum(acc) / len(acc) * 100} % ")
+                    val_loss += loss.item()
+                    val_acc.append((outputs.argmax(dim=1) == labels).float().mean().item())
+                
+                avg_val_loss = val_loss / len(val_loader)
+                avg_val_acc = sum(val_acc) / len(val_acc) * 100
+                
+                print(f"Validation - Loss: {avg_val_loss:.4f}, Accuracy: {avg_val_acc:.2f}%")
+                
+                # 保存日志
                 with open(f'{save_path}log.txt', 'a') as f:
-                    f.write(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(train_loader)}, Acc: {sum(acc) / len(acc) * 100} % \n")
+                    f.write(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, "
+                           f"Val Loss: {avg_val_loss:.4f}, Val Acc: {avg_val_acc:.2f}%\n")
+                
+                # 保存最佳模型
+                if avg_val_acc > best_acc:
+                    best_acc = avg_val_acc
+                    best_state = model.state_dict()
+                    torch.save(best_state, f'{save_path}/best_model.pth')
+                    print(f"New best model saved! Accuracy: {best_acc:.2f}%")
+        
+        # 每50个epoch保存checkpoint
+        if (epoch + 1) % 50 == 0:
+            torch.save({
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer_Adam.state_dict(),
+                'scheduler_state_dict': scheduler_Adam.state_dict(),
+                'best_acc': best_acc,
+            }, f'{save_path}/checkpoint_epoch{epoch+1}.pth')
+            print(f"Checkpoint saved at epoch {epoch+1}")
+
+    # 训练结束，加载并返回最佳模型
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model
 
 if __name__ == "__main__":
     # 选择 ResNet 模型
     # 获取预训练的 ResNet-18 模型
-    model = models.resnet18(pretrained=True)
+    model = models.resnet18(pretrained=False)
 
     # 修改最后的全连接层以适应你的任务
     num_classes = 100 
-    torch.save(model.state_dict(), 'resnet18_im1k.pth')
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    torch.save(model.state_dict(), 'resnet18_im1k11.pth')
     
     input("Press Enter to continue...")
     model = model.cuda()
@@ -123,9 +125,9 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss()
 
     # 准备数据
-    train_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImage_train.json')
-    train_loader_aug = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImage_train.json', aug=True)
-    val_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImage_val.json')
+    train_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImagenet_train.json')
+    train_loader_aug = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImagenet_train.json', aug=True)
+    val_loader = get_pretrain_dataloader(batch_size=64, json_file='../utils/miniImagenet_val.json')
 
     # 启动训练
-    # train_model(model, train_loader, train_loader_aug,optimizer_Adam, scheduler_Adam, criterion, num_epochs=100)
+    train_model(model, train_loader, train_loader_aug,optimizer_Adam, scheduler_Adam, criterion, num_epochs=500)

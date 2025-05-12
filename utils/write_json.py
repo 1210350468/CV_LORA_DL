@@ -36,4 +36,7 @@ def convert_dataset_to_json(dataset_dir, output_json):
 
 
 # 调用函数进行转换
-convert_dataset_to_json('/root/autodl-tmp/all_starnight/dataset/datafsl/source/EuroSAT_add/images', 'EuroSAT.json')
+# convert_dataset_to_json('/root/autodl-tmp/all_starnight/dataset/datafsl/source/EuroSAT_add/images', 'EuroSAT.json')
+convert_dataset_to_json('/root/autodl-tmp/all_starnight/dataset/datafsl/source/miniImagenet/train', 'miniImagenet_train.json')
+convert_dataset_to_json('/root/autodl-tmp/all_starnight/dataset/datafsl/source/miniImagenet/val', 'miniImagenet_val.json')
+convert_dataset_to_json('/root/autodl-tmp/all_starnight/dataset/datafsl/source/miniImagenet/test', 'miniImagenet_test.json')

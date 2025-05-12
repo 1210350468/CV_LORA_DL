@@ -18,10 +18,11 @@ class TestConfig:
         self.output_support_dir = 'support_images/5_zkz'
         self.output_Lora_dir = 'support_images/Lora_images'
         self.output_dir = 'support_images'
-        
+        self.output_query_dir = 'support_images/query'
+        self.task_images_dir = 'task_images'
         # 模型参数
         self.model_name = 'resnet18'
-        self.freeze_backbone = False
+        self.freeze_backbone = True
         
     def update(self, **kwargs):
         """更新配置参数"""

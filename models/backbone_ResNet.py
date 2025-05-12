@@ -53,6 +53,7 @@ class BottleneckBlock(nn.Module):
         
         # 1x1卷积用于降低维度
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        
         self.bn1 = nn.BatchNorm2d(out_channels)
         
         # 3x3卷积处理特征
@@ -159,11 +160,11 @@ class ResNet(nn.Module):
 # 工厂函数，用于创建不同的 ResNet 变体
 def create_resnet(model_name, num_classes=1000):
     model_dict = {
-        'resnet18': (BasicBlock, [2, 2, 2, 2]),
-        'resnet34': (BasicBlock, [3, 4, 6, 3]),
-        'resnet50': (BottleneckBlock, [3, 4, 6, 3]),
-        'resnet101': (BottleneckBlock, [3, 4, 23, 3]),
-        'resnet152': (BottleneckBlock, [3, 8, 36, 3]),
+        'ResNet18': (BasicBlock, [2, 2, 2, 2]),
+        'ResNet34': (BasicBlock, [3, 4, 6, 3]),
+        'ResNet50': (BottleneckBlock, [3, 4, 6, 3]),
+        'ResNet101': (BottleneckBlock, [3, 4, 23, 3]),
+        'ResNet152': (BottleneckBlock, [3, 8, 36, 3]),
     }
     if model_name not in model_dict:
         raise ValueError(f"Unsupported model name {model_name}. Supported models are: {list(model_dict.keys())}")
